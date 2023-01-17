@@ -41,7 +41,7 @@ const obj = new Proxy(data, {
 
 // 在get拦截函数内调用track函数追踪变化
 function track(target, key) {
-	if (!activeEffect) return target[key]
+	if (!activeEffect) return
 
 	let depsMap = bucket.get(target)
 	if (!depsMap) {

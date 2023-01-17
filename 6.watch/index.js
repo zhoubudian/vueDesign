@@ -16,7 +16,7 @@ const bucket = new WeakMap()
 
 // 原始值
 // const data = { ok: true, text: 'hello wold' }
-const data = { foo: 1, bar: true }
+const data = { foo: 1, bar: 2 }
 // 存储当前激活的effect函数
 let activeEffect
 
@@ -71,7 +71,13 @@ function trigger(target, key) {
 			}
 		})
 
-	effectsToRun.forEach((effectFn) => effectFn())
+	effectsToRun.forEach((effectFn) => {
+		if (effectFn.options.scheduler) {
+			effectFn.options.scheduler(effectFn)
+		} else {
+			effectFn()
+		}
+	})
 	// effects && effects.forEach((fn) => fn())
 }
 
@@ -84,54 +90,120 @@ function cleanup(effectFn) {
 }
 
 // 注册副作用函数
-function effect(fn) {
+function effect(fn, options = {}) {
 	// -- document.body.innerText = obj.text
 	function effectFn() {
 		cleanup(effectFn)
 		activeEffect = effectFn
 		effectStack.push(effectFn)
-		fn()
+		const res = fn()
 		effectStack.pop()
 		activeEffect = effectStack[effectStack.length - 1]
+		return res
 	}
+	effectFn.options = options
 	effectFn.deps = []
-	effectFn()
+	if (!options.lazy) {
+		effectFn()
+	}
+	return effectFn
+}
+// 定义一个队列
+const jobQueue = new Set()
+
+const p = Promise.resolve()
+
+let isFlushing = false
+function flushJob() {
+	if (isFlushing) return
+
+	isFlushing = true
+	p.then(() => {
+		jobQueue.forEach((job) => job())
+	}).finally(() => {
+		isFlushing = false
+	})
 }
 
-// // -- effect()
-// effect(() => {
-// 	console.log('执行了--------------->')
-// 	document.body.innerText = obj.ok ? obj.text : 'not'
-// })
+function computed(getter) {
+	// debugger
+	// value用来缓存上一次计算的值
+	let _value
+	// 用来标识是否需要重新计算,为true需要重新计算
+	let dirty = true
+	const effectFn = effect(getter, {
+		lazy: true,
+		// 当值发生改变的时候触发执行调度器
+		scheduler() {
+			// console.log(13123)
+			if (!dirty) {
+				dirty = true
+				trigger(obj, 'value')
+			}
+		},
+	})
+	// activeEffect = effectFn
 
-// // 改变数据
-// setTimeout(() => {
-// 	obj.ok = false
-// 	console.log('🚀 ~ file: index.js:16 ~ bucket', bucket)
-// 	console.log('🚀 ~ file: index.js:21 ~ activeEffect', activeEffect.deps)
-// }, 2000)
-
-// effect 嵌套测试代码
-// let temp1, temp2
-// effect(function effectFn1() {
-// 	console.log('effectFn1执行')
-// 	effect(function effectFn2() {
-// 		console.log('effectFn2执行')
-// 		temp2 = obj.bar
+	const obj = {
+		get value() {
+			if (dirty) {
+				_value = effectFn()
+				dirty = false
+			}
+			// console.log('🚀 ~ file: index.js:146 ~ objputed ~ obj', this)
+			// activeEffect = effectFn
+			track(obj, 'value')
+			return _value
+		},
+	}
+	return obj
+}
+// 简单watch 只对boj.foo起作用硬编码
+// function watch(source, cb) {
+// 	effect(() => source.foo, {
+// 		scheduler() {
+// 			cb()
+// 		},
 // 	})
-// 	temp1 = obj.foo
+// }
+// 解决硬编码
+function watch(source, cb) {
+	effect(() => traverse(source), {
+		scheduler() {
+			cb()
+		},
+	})
+}
+function traverse(value, seen = new Set()) {
+	// 通过递归读取 触发track收集依赖
+	if (typeof value !== 'object' || value === null || seen.has(value)) return
+	seen.add(value)
+	// 如果value是一个对象
+	for (const k in value) {
+		traverse(value[k], seen)
+	}
+	console.log(seen, '------------->seen')
+	return value
+}
 
-// 	console.log('🚀 ~ file: index.js:16 ~ bucket', bucket)
-// 	console.log('🚀 ~ file: index.js:21 ~ activeEffect', activeEffect.deps)
-// })
-
-// obj.foo = '123123123123'
-
-/**
- * 避免无限递归循环测试代码
- * 解决方法如果trigger触发执行的副作用函数与当前正在执行的副作用函数相同,则不触发执行
- */
-
-effect(() => {
-	obj.foo++
+watch(obj, () => {
+	console.log('watch')
 })
+
+obj.foo++
+obj.bar++
+
+// const effectFn = effect(() => obj.foo, {
+// 	lazy: true,
+// })
+// const value = effectFn()
+
+// obj.foo++
+
+// const sumRes = computed(() => obj.foo + obj.bar)
+// // console.log(sumRes.value)
+// effect(() => {
+// 	console.log(sumRes.value)
+// })
+// obj.foo++
+// console.log('bucket', bucket)

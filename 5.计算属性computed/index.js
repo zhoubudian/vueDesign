@@ -44,7 +44,7 @@ const obj = new Proxy(data, {
 
 // 在get拦截函数内调用track函数追踪变化
 function track(target, key) {
-	if (!activeEffect) return target[key]
+	if (!activeEffect) return
 
 	let depsMap = bucket.get(target)
 	if (!depsMap) {
@@ -126,32 +126,37 @@ function flushJob() {
 }
 
 function computed(getter) {
+	// debugger
 	// value用来缓存上一次计算的值
-	let value
+	let _value
 	// 用来标识是否需要重新计算,为true需要重新计算
 	let dirty = true
 	const effectFn = effect(getter, {
 		lazy: true,
 		// 当值发生改变的时候触发执行调度器
 		scheduler() {
+			// console.log(13123)
 			if (!dirty) {
 				dirty = true
 				trigger(obj, 'value')
 			}
 		},
 	})
+	// activeEffect = effectFn
 
-	const obj = {
+	const com = {
 		get value() {
 			if (dirty) {
-				value = effectFn()
+				_value = effectFn()
 				dirty = false
 			}
+			// console.log('🚀 ~ file: index.js:146 ~ computed ~ obj', this)
+			// activeEffect = effectFn
 			track(obj, 'value')
-			return value
+			return _value
 		},
 	}
-	return obj
+	return com
 }
 
 // const effectFn = effect(() => obj.foo, {
@@ -161,9 +166,9 @@ function computed(getter) {
 
 // obj.foo++
 const sumRes = computed(() => obj.foo + obj.bar)
-console.log('🚀 ~ file: index.js:148 ~ sumRes ~ sumRes', sumRes.value)
-// effect(() => {
-// 	console.log(sumRes.value)
-// })
-// obj.foo++
+// console.log(sumRes.value)
+effect(() => {
+	console.log(sumRes.value)
+})
+obj.foo++
 console.log('bucket', bucket)
