@@ -158,41 +158,9 @@ function computed(getter) {
 	}
 	return obj
 }
-/**
- * // 简单watch 只对boj.foo起作用硬编码
-// function watch(source, cb) {
-// 	effect(() => source.foo, {
-// 		scheduler() {
-// 			cb()
-// 		},
-// 	})
-// }
- * 
- */
-/**
- * // 解决硬编码
-function watch(source, cb) {
-	effect(() => traverse(source), {
-		scheduler() {
-			cb()
-		},
-	})
-}
-function traverse(value, seen = new Set()) {
-	// 通过递归读取 触发track收集依赖
-	if (typeof value !== 'object' || value === null || seen.has(value)) return
-	seen.add(value)
-	// 如果value是一个对象
-	for (const k in value) {
-		traverse(value[k], seen)
-	}
-	console.log(seen, '------------->seen')
-	return value
-}
- * 
- */
-// 实现用户传递gettter函数 和 新值和旧值的问题
-function watch(source, cb) {
+
+
+function watch(source, cb, options = {}) {
 	// 定义getter
 	let getter;
 	// 如果source 是函数,说明用户传递的是getter 所以直接把source赋值给getter
@@ -204,20 +172,37 @@ function watch(source, cb) {
 	}
 	// 定义新值和旧值
 	let oldValue,newValue;
+	// 提取scheduler调度函数为一个独立的job函数
+	const job = () => {
+		newValue = effectFn()
+		// 将新旧值传作为回调函数的参数
+		cb(newValue, oldValue)
+		// 更新旧值
+		oldValue = newValue
+	}
 	// 使用effect注册副作用函数,开启lazy选项, 并把返回值存储到effectFn中后面调用使用
+	//  flush?: 'pre' | 'post' | 'sync'
+	// 源码地址 https://github.com/vuejs/core/blob/main/packages/runtime-core/src/apiWatch.ts
 	const effectFn = effect(() => getter(), {
 		lazy: true,
-		scheduler() {
-			// 手动执行副作用函数,得到新值
-			newValue = effectFn()
-			// 将新旧值传作为回调函数的参数
-			cb(newValue,oldValue)
-			// 更新旧值
-			oldValue = newValue
+		scheduler:() => {
+			// 在调度函数中判断flush是否为post, 是将它放入到微任务队列中执行
+			if (options.flush === 'post') {
+				const p = Promise.resolve()
+				p.then(job)
+			} else {
+				job()
+			}
 		},
 	})
-	// 手动调用副作用函数,拿到旧值
-	oldValue = effectFn()
+	if(options.immediate) {
+		// 当immediate为true时立即执行job, 触发回调执行
+		job()
+	} else {
+		// 手动调用副作用函数,拿到旧值
+	  oldValue = effectFn()
+	}
+	
 }
 function traverse(value, seen = new Set()) {
 	// 通过递归读取 触发track收集依赖
@@ -231,30 +216,22 @@ function traverse(value, seen = new Set()) {
 	return value
 }
 
-watch(
-	() => obj.foo, 
-	(newValue,oldValue) => {
-		console.log("🚀 ~ file: index.js:226 ~ oldValue", oldValue)
-		console.log("🚀 ~ file: index.js:226 ~ newValue", newValue)
-		console.log('watch obj.foo 的值变了')
-  }
-)
+watch(obj, () => {
+	console.log('变化了')
+},{
+	immediate:true
+})
 
-obj.foo++
-obj.foo++
-obj.bar++
-
-// const effectFn = effect(() => obj.foo, {
-// 	lazy: true,
-// })
-// const value = effectFn()
+// watch(
+// 	() => obj.foo, 
+// 	(newValue,oldValue) => {
+// 		console.log("🚀 ~ file: index.js:226 ~ oldValue", oldValue)
+// 		console.log("🚀 ~ file: index.js:226 ~ newValue", newValue)
+// 		console.log('watch obj.foo 的值变了')
+//   }
+// )
 
 // obj.foo++
-
-// const sumRes = computed(() => obj.foo + obj.bar)
-// // console.log(sumRes.value)
-// effect(() => {
-// 	console.log(sumRes.value)
-// })
 // obj.foo++
-// console.log('bucket', bucket)
+// obj.bar++
+
